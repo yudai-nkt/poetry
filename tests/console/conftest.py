@@ -8,10 +8,12 @@ except ImportError:
     import urlparse
 
 from cleo import ApplicationTester
+from clikit.io import NullIO
 from tomlkit import document
 
 from poetry.config import Config as BaseConfig
 from poetry.console import Application as BaseApplication
+from poetry.factory import Factory
 from poetry.installation.noop_installer import NoopInstaller
 from poetry.poetry import Poetry as BasePoetry
 from poetry.packages import Locker as BaseLocker
@@ -86,8 +88,11 @@ class Application(BaseApplication):
 
     def reset_poetry(self):
         poetry = self._poetry
-        self._poetry = Poetry.create(self._poetry.file.path.parent)
-        self._poetry._pool = poetry.pool
+        self._poetry = Factory().create_poetry(NullIO(), self._poetry.file.path.parent)
+        self._poetry.set_pool(poetry.pool)
+        self._poetry.set_config(poetry.config)
+        self._poetry.set_auth_config(poetry.auth_config)
+        self._poetry.set_locker(poetry.locker)
 
 
 class Config(BaseConfig):
@@ -170,13 +175,22 @@ def project_directory():
 
 @pytest.fixture
 def poetry(repo, project_directory):
-    p = Poetry.create(Path(__file__).parent.parent / "fixtures" / project_directory)
+    p = Factory().create_poetry(
+        NullIO(), Path(__file__).parent.parent / "fixtures" / project_directory
+    )
+
+    locker = Locker(p.locker.lock.path, p.locker._local_config)
+    p.set_locker(locker)
+
+    p.set_auth_config(Config.create("auth.toml"))
+
+    pool = Pool()
+    pool.add_repository(repo)
+
+    p.set_pool(pool)
 
     with p.file.path.open(encoding="utf-8") as f:
         content = f.read()
-
-    p.pool.remove_repository("pypi")
-    p.pool.add_repository(repo)
 
     yield p
 
@@ -188,6 +202,7 @@ def poetry(repo, project_directory):
 def app(poetry):
     app_ = Application(poetry)
     app_.config.set_terminate_after_run(False)
+    app_.boot()
 
     return app_
 

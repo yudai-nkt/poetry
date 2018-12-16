@@ -4,7 +4,11 @@ from __future__ import unicode_literals
 
 import pytest
 
-from poetry.poetry import Poetry
+from clikit.io import NullIO
+from entrypoints import EntryPoint
+
+from poetry.factory import Factory
+from poetry.plugins.plugin import Plugin
 from poetry.utils._compat import PY2
 from poetry.utils._compat import Path
 from poetry.utils.toml_file import TomlFile
@@ -13,8 +17,14 @@ from poetry.utils.toml_file import TomlFile
 fixtures_dir = Path(__file__).parent / "fixtures"
 
 
-def test_poetry():
-    poetry = Poetry.create(str(fixtures_dir / "sample_project"))
+class MyPlugin(Plugin):
+    def activate(self, poetry, io):
+        io.write_line("Updating version")
+        poetry.package.set_version("9.9.9")
+
+
+def test_create_poetry():
+    poetry = Factory().create_poetry(NullIO(), fixtures_dir / "sample_project")
 
     package = poetry.package
 
@@ -112,8 +122,9 @@ def test_poetry():
 
 
 def test_poetry_with_packages_and_includes():
-    poetry = Poetry.create(
-        str(fixtures_dir.parent / "masonry" / "builders" / "fixtures" / "with-include")
+    poetry = Factory().create_poetry(
+        NullIO(),
+        fixtures_dir.parent / "masonry" / "builders" / "fixtures" / "with-include",
     )
 
     package = poetry.package
@@ -131,8 +142,8 @@ def test_poetry_with_packages_and_includes():
 
 
 def test_poetry_with_multi_constraints_dependency():
-    poetry = Poetry.create(
-        str(fixtures_dir / "project_with_multi_constraints_dependency")
+    poetry = Factory().create_poetry(
+        NullIO(), fixtures_dir / "project_with_multi_constraints_dependency"
     )
 
     package = poetry.package
@@ -141,26 +152,26 @@ def test_poetry_with_multi_constraints_dependency():
 
 
 def test_poetry_with_default_source():
-    poetry = Poetry.create(fixtures_dir / "with_default_source")
+    poetry = Factory().create_poetry(NullIO(), fixtures_dir / "with_default_source")
 
     assert 1 == len(poetry.pool.repositories)
 
 
 def test_poetry_with_two_default_sources():
     with pytest.raises(ValueError) as e:
-        Poetry.create(fixtures_dir / "with_two_default_sources")
+        Factory().create_poetry(NullIO(), fixtures_dir / "with_two_default_sources")
 
     assert "Only one repository can be the default" == str(e.value)
 
 
-def test_check():
+def test_validate():
     complete = TomlFile(fixtures_dir / "complete.toml")
     content = complete.read()["tool"]["poetry"]
 
-    assert Poetry.check(content) == {"errors": [], "warnings": []}
+    assert Factory().validate(content) == {"errors": [], "warnings": []}
 
 
-def test_check_fails():
+def test_validate_fails():
     complete = TomlFile(fixtures_dir / "complete.toml")
     content = complete.read()["tool"]["poetry"]
     content["this key is not in the schema"] = ""
@@ -176,13 +187,13 @@ def test_check_fails():
             "('this key is not in the schema' was unexpected)"
         )
 
-    assert Poetry.check(content) == {"errors": [expected], "warnings": []}
+    assert Factory().validate(content) == {"errors": [expected], "warnings": []}
 
 
 def test_create_fails_on_invalid_configuration():
     with pytest.raises(RuntimeError) as e:
-        Poetry.create(
-            Path(__file__).parent / "fixtures" / "invalid_pyproject" / "pyproject.toml"
+        Factory().create_poetry(
+            NullIO(), Path(__file__).parent / "fixtures" / "invalid_pyproject"
         )
 
     if PY2:
@@ -196,3 +207,14 @@ The Poetry configuration is invalid:
   - 'description' is a required property
 """
     assert expected == str(e.value)
+
+
+def test_create_poetry_with_plugins(mocker):
+    mocker.patch(
+        "entrypoints.get_group_all",
+        return_value=[EntryPoint("my-plugin", "tests.test_factory", "MyPlugin")],
+    )
+
+    poetry = Factory().create_poetry(NullIO(), fixtures_dir / "sample_project")
+
+    assert "9.9.9" == poetry.package.version.text

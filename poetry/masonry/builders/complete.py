@@ -1,9 +1,11 @@
 import os
 import tarfile
 
-import poetry.poetry
+import poetry.factory
 
 from contextlib import contextmanager
+
+from poetry.utils._compat import Path
 
 from .builder import Builder
 from .sdist import SdistBuilder
@@ -22,7 +24,9 @@ class CompleteBuilder(Builder):
         dist_dir = self._path / "dist"
         with self.unpacked_tarball(sdist_file) as tmpdir:
             WheelBuilder.make_in(
-                poetry.poetry.Poetry.create(tmpdir),
+                poetry.factory.Factory().create_poetry(
+                    self._io, Path(tmpdir), disable_plugins=True
+                ),
                 self._env,
                 self._io,
                 dist_dir,

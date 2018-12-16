@@ -3,7 +3,7 @@ import pytest
 from poetry.io.null_io import NullIO
 from poetry.masonry.publishing.uploader import UploadError
 from poetry.masonry.publishing.uploader import Uploader
-from poetry.poetry import Poetry
+from poetry.factory import Factory
 from poetry.utils._compat import Path
 
 
@@ -16,7 +16,9 @@ def project(name):
 
 def test_uploader_properly_handles_400_errors(http):
     http.register_uri(http.POST, "https://foo.com", status=400, body="Bad request")
-    uploader = Uploader(Poetry.create(project("simple_project")), NullIO())
+    uploader = Uploader(
+        Factory().create_poetry(NullIO(), project("simple_project")), NullIO()
+    )
 
     with pytest.raises(UploadError) as e:
         uploader.upload("https://foo.com")
@@ -26,7 +28,9 @@ def test_uploader_properly_handles_400_errors(http):
 
 def test_uploader_properly_handles_403_errors(http):
     http.register_uri(http.POST, "https://foo.com", status=403, body="Unauthorized")
-    uploader = Uploader(Poetry.create(project("simple_project")), NullIO())
+    uploader = Uploader(
+        Factory().create_poetry(NullIO(), project("simple_project")), NullIO()
+    )
 
     with pytest.raises(UploadError) as e:
         uploader.upload("https://foo.com")
@@ -39,7 +43,9 @@ def test_uploader_registers_for_appropriate_400_errors(mocker, http):
     http.register_uri(
         http.POST, "https://foo.com", status=400, body="No package was ever registered"
     )
-    uploader = Uploader(Poetry.create(project("simple_project")), NullIO())
+    uploader = Uploader(
+        Factory().create_poetry(NullIO(), project("simple_project")), NullIO()
+    )
 
     with pytest.raises(UploadError):
         uploader.upload("https://foo.com")

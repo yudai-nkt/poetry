@@ -3,13 +3,17 @@ from __future__ import unicode_literals
 
 import pytest
 
+from clikit.io import NullIO
 from cleo.testers import CommandTester
+
+from poetry.factory import Factory
+from poetry.repositories.pool import Pool
 
 from tests.helpers import get_package
 
 from ..conftest import Application
+from ..conftest import Locker
 from ..conftest import Path
-from ..conftest import Poetry
 
 
 PYPROJECT_CONTENT = """\
@@ -47,18 +51,24 @@ def poetry(repo, tmp_dir):
     with (Path(tmp_dir) / "pyproject.toml").open("w", encoding="utf-8") as f:
         f.write(PYPROJECT_CONTENT)
 
-    p = Poetry.create(Path(tmp_dir))
+    p = Factory().create_poetry(NullIO(), Path(tmp_dir))
+    p.set_locker(Locker(p.locker.lock.path, p.locker._local_config))
+    p.locker.write()
 
-    p.pool.remove_repository("pypi")
-    p.pool.add_repository(repo)
-    p._locker.write()
+    pool = Pool()
+    pool.add_repository(repo)
+
+    p.set_pool(pool)
 
     yield p
 
 
 @pytest.fixture
 def app(poetry):
-    return Application(poetry)
+    application = Application(poetry)
+    application.boot()
+
+    return application
 
 
 def test_export_exports_requirements_txt_file_locks_if_no_lock_file(app, repo):

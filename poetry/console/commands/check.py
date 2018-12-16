@@ -1,4 +1,4 @@
-from poetry.poetry import Poetry
+from poetry.factory import Factory
 from poetry.utils._compat import Path
 from poetry.utils.toml_file import TomlFile
 
@@ -12,9 +12,10 @@ class CheckCommand(Command):
 
     def handle(self):
         # Load poetry config and display errors, if any
-        poetry_file = Poetry.locate(Path.cwd())
+        factory = Factory()
+        poetry_file = factory.locate(Path.cwd())
         config = TomlFile(str(poetry_file)).read()["tool"]["poetry"]
-        check_result = Poetry.check(config, strict=True)
+        check_result = factory.validate(config, strict=True)
         if not check_result["errors"] and not check_result["warnings"]:
             self.info("All set!")
 

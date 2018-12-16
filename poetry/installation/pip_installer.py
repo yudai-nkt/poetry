@@ -154,7 +154,7 @@ class PipInstaller(BaseInstaller):
 
     def install_directory(self, package):
         from poetry.masonry.builder import SdistBuilder
-        from poetry.poetry import Poetry
+        from poetry.factory import Factory
         from poetry.utils._compat import decode
         from poetry.utils.env import NullEnv
         from poetry.utils.toml_file import TomlFile
@@ -187,7 +187,9 @@ class PipInstaller(BaseInstaller):
             # file since pip, as of this comment, does not support
             # build-system for editable packages
             # We also need it for non-PEP-517 packages
-            builder = SdistBuilder(Poetry.create(pyproject.parent), NullEnv(), NullIO())
+            builder = SdistBuilder(
+                Factory().create_poetry(self._io, pyproject.parent), NullEnv(), NullIO()
+            )
 
             with open(setup, "w", encoding="utf-8") as f:
                 f.write(decode(builder.build_setup()))

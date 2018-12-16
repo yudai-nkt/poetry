@@ -1,8 +1,9 @@
+from clikit.io import NullIO
 from cleo.testers import CommandTester
 
 from poetry.utils._compat import PY2
 from poetry.utils._compat import Path
-from poetry.poetry import Poetry
+from poetry.factory import Factory
 
 
 def test_check_valid(app):
@@ -20,7 +21,7 @@ All set!
 
 def test_check_invalid(app, mocker):
     mocker.patch(
-        "poetry.poetry.Poetry.locate",
+        "poetry.factory.Factory.locate",
         return_value=Path(__file__).parent.parent.parent
         / "fixtures"
         / "invalid_pyproject"

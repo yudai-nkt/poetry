@@ -1,25 +1,15 @@
 from __future__ import absolute_import
 from __future__ import unicode_literals
 
-import shutil
-
-from typing import Dict
-from typing import List
+from clikit.api.event import EventDispatcher
 
 from .__version__ import __version__
 from .config import Config
-from .json import validate_object
-from .packages import Dependency
 from .packages import Locker
 from .packages import Package
-from .packages import ProjectPackage
+from .plugins import PluginManager
 from .repositories import Pool
-from .repositories.auth import Auth
-from .repositories.legacy_repository import LegacyRepository
-from .repositories.pypi_repository import PyPiRepository
-from .spdx import license_by_id
 from .utils._compat import Path
-from .utils.helpers import get_http_basic_auth
 from .utils.toml_file import TomlFile
 
 
@@ -33,28 +23,18 @@ class Poetry:
         local_config,  # type: dict
         package,  # type: Package
         locker,  # type: Locker
+        config,  # type: Config
+        auth_config,  # type: Config
     ):
         self._file = TomlFile(file)
         self._package = package
         self._local_config = local_config
         self._locker = locker
-        self._config = Config.create("config.toml")
-        self._auth_config = Config.create("auth.toml")
-
-        # Configure sources
+        self._config = config
+        self._auth_config = auth_config
+        self._event_dispatcher = EventDispatcher()
+        self._plugin_manager = None
         self._pool = Pool()
-        for source in self._local_config.get("source", []):
-            repository = self.create_legacy_repository(source)
-            self._pool.add_repository(
-                repository,
-                source.get("default", False),
-                secondary=source.get("secondary", False),
-            )
-
-        # Always put PyPI last to prefer private repositories
-        # but only if we have no other default source
-        if not self._pool.has_default():
-            self._pool.add_repository(PyPiRepository(), True)
 
     @property
     def file(self):
@@ -84,206 +64,28 @@ class Poetry:
     def auth_config(self):  # type: () -> Config
         return self._auth_config
 
-    @classmethod
-    def create(cls, cwd):  # type: (Path) -> Poetry
-        poetry_file = cls.locate(cwd)
+    @property
+    def event_dispatcher(self):  # type: () -> EventDispatcher
+        return self._event_dispatcher
 
-        local_config = TomlFile(poetry_file.as_posix()).read()
-        if "tool" not in local_config or "poetry" not in local_config["tool"]:
-            raise RuntimeError(
-                "[tool.poetry] section not found in {}".format(poetry_file.name)
-            )
-        local_config = local_config["tool"]["poetry"]
+    @property
+    def plugin_manager(self):  # type: () -> PluginManager
+        return self._plugin_manager
 
-        # Checking validity
-        check_result = cls.check(local_config)
-        if check_result["errors"]:
-            message = ""
-            for error in check_result["errors"]:
-                message += "  - {}\n".format(error)
+    def set_config(self, config):  # type: (Config) -> None
+        self._config = config
 
-            raise RuntimeError("The Poetry configuration is invalid:\n" + message)
+    def set_auth_config(self, auth_config):  # type: (Config) -> None
+        self._auth_config = auth_config
 
-        # Load package
-        name = local_config["name"]
-        version = local_config["version"]
-        package = ProjectPackage(name, version, version)
-        package.root_dir = poetry_file.parent
+    def set_locker(self, locker):  # type: (Locker) -> None
+        self._locker = locker
 
-        for author in local_config["authors"]:
-            package.authors.append(author)
+    def set_pool(self, pool):  # type: (Pool) -> None
+        self._pool = pool
 
-        for maintainer in local_config.get("maintainers", []):
-            package.maintainers.append(maintainer)
+    def set_event_dispatcher(self, event_dispatcher):  # type: (EventDispatcher) -> None
+        self._event_dispatcher = event_dispatcher
 
-        package.description = local_config.get("description", "")
-        package.homepage = local_config.get("homepage")
-        package.repository_url = local_config.get("repository")
-        package.documentation_url = local_config.get("documentation")
-        try:
-            license_ = license_by_id(local_config.get("license", ""))
-        except ValueError:
-            license_ = None
-
-        package.license = license_
-        package.keywords = local_config.get("keywords", [])
-        package.classifiers = local_config.get("classifiers", [])
-
-        if "readme" in local_config:
-            package.readme = Path(poetry_file.parent) / local_config["readme"]
-
-        if "platform" in local_config:
-            package.platform = local_config["platform"]
-
-        if "dependencies" in local_config:
-            for name, constraint in local_config["dependencies"].items():
-                if name.lower() == "python":
-                    package.python_versions = constraint
-                    continue
-
-                if isinstance(constraint, list):
-                    for _constraint in constraint:
-                        package.add_dependency(name, _constraint)
-
-                    continue
-
-                package.add_dependency(name, constraint)
-
-        if "dev-dependencies" in local_config:
-            for name, constraint in local_config["dev-dependencies"].items():
-                if isinstance(constraint, list):
-                    for _constraint in constraint:
-                        package.add_dependency(name, _constraint, category="dev")
-
-                    continue
-
-                package.add_dependency(name, constraint, category="dev")
-
-        extras = local_config.get("extras", {})
-        for extra_name, requirements in extras.items():
-            package.extras[extra_name] = []
-
-            # Checking for dependency
-            for req in requirements:
-                req = Dependency(req, "*")
-
-                for dep in package.requires:
-                    if dep.name == req.name:
-                        dep.in_extras.append(extra_name)
-                        package.extras[extra_name].append(dep)
-
-                        break
-
-        if "build" in local_config:
-            package.build = local_config["build"]
-
-        if "include" in local_config:
-            package.include = local_config["include"]
-
-        if "exclude" in local_config:
-            package.exclude = local_config["exclude"]
-
-        if "packages" in local_config:
-            package.packages = local_config["packages"]
-
-        # Custom urls
-        if "urls" in local_config:
-            package.custom_urls = local_config["urls"]
-
-        # Moving lock if necessary (pyproject.lock -> poetry.lock)
-        lock = poetry_file.parent / "poetry.lock"
-        if not lock.exists():
-            # Checking for pyproject.lock
-            old_lock = poetry_file.with_suffix(".lock")
-            if old_lock.exists():
-                shutil.move(str(old_lock), str(lock))
-
-        locker = Locker(poetry_file.parent / "poetry.lock", local_config)
-
-        return cls(poetry_file, local_config, package, locker)
-
-    def create_legacy_repository(
-        self, source
-    ):  # type: (Dict[str, str]) -> LegacyRepository
-        if "url" in source:
-            # PyPI-like repository
-            if "name" not in source:
-                raise RuntimeError("Missing [name] in source.")
-        else:
-            raise RuntimeError("Unsupported source specified")
-
-        name = source["name"]
-        url = source["url"]
-        credentials = get_http_basic_auth(self._auth_config, name)
-        if not credentials:
-            return LegacyRepository(name, url)
-
-        auth = Auth(url, credentials[0], credentials[1])
-
-        return LegacyRepository(name, url, auth=auth)
-
-    @classmethod
-    def locate(cls, cwd):  # type: (Path) -> Poetry
-        candidates = [Path(cwd)]
-        candidates.extend(Path(cwd).parents)
-
-        for path in candidates:
-            poetry_file = path / "pyproject.toml"
-
-            if poetry_file.exists():
-                return poetry_file
-
-        else:
-            raise RuntimeError(
-                "Poetry could not find a pyproject.toml file in {} or its parents".format(
-                    cwd
-                )
-            )
-
-    @classmethod
-    def check(cls, config, strict=False):  # type: (dict, bool) -> Dict[str, List[str]]
-        """
-        Checks the validity of a configuration
-        """
-        result = {"errors": [], "warnings": []}
-        # Schema validation errors
-        validation_errors = validate_object(config, "poetry-schema")
-
-        result["errors"] += validation_errors
-
-        if strict:
-            # If strict, check the file more thoroughly
-
-            # Checking license
-            license = config.get("license")
-            if license:
-                try:
-                    license_by_id(license)
-                except ValueError:
-                    result["errors"].append("{} is not a valid license".format(license))
-
-            if "dependencies" in config:
-                python_versions = config["dependencies"]["python"]
-                if python_versions == "*":
-                    result["warnings"].append(
-                        "A wildcard Python dependency is ambiguous. "
-                        "Consider specifying a more explicit one."
-                    )
-
-            # Checking for scripts with extras
-            if "scripts" in config:
-                scripts = config["scripts"]
-                for name, script in scripts.items():
-                    if not isinstance(script, dict):
-                        continue
-
-                    extras = script["extras"]
-                    for extra in extras:
-                        if extra not in config["extras"]:
-                            result["errors"].append(
-                                'Script "{}" requires extra "{}" which is not defined.'.format(
-                                    name, extra
-                                )
-                            )
-
-        return result
+    def set_plugin_manager(self, plugin_manager):  # type: (PluginManager) -> None
+        self._plugin_manager = plugin_manager

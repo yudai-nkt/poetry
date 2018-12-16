@@ -1,5 +1,6 @@
 import logging
 
+
 from cleo.config import ApplicationConfig as BaseApplicationConfig
 from clikit.api.event import ConsoleEvents
 from clikit.api.event import PreHandleEvent
@@ -15,6 +16,8 @@ class ApplicationConfig(BaseApplicationConfig):
     def configure(self):
         super(ApplicationConfig, self).configure()
 
+        self.add_option("no-plugins", description="Disable plugins")
+
         self.add_style(Style("c1").fg("cyan"))
         self.add_style(Style("info").fg("cyan"))
         self.add_style(Style("comment").fg("green"))
@@ -28,10 +31,7 @@ class ApplicationConfig(BaseApplicationConfig):
         self.add_event_listener(ConsoleEvents.PRE_HANDLE.value, self.set_env)
 
     def register_command_loggers(
-        self,
-        event,  # type: PreHandleEvent
-        event_name,  # type: str
-        _,
+        self, event, event_name, _  # type: PreHandleEvent  # type: str
     ):  # type: (...) -> None
         command = event.command.config.handler
         if not isinstance(command, Command):
