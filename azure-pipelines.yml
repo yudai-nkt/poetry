@@ -1,0 +1,47 @@
+name: $(BuildDefinitionName)_$(Date:yyyyMMdd)$(Rev:.rr)
+resources:
+  repositories:
+  - repository: tox
+    type: github
+    endpoint: github-gb
+    name: tox-dev/azure-pipelines-template
+    ref: master
+
+trigger:
+  batch: true
+  branches:
+    include:
+    - master
+    - develop
+pr:
+  branches:
+    include:
+    - master
+    - develop
+
+variables:
+  PYTEST_ADDOPTS: "-v -v -ra --showlocals"
+  CI_RUN: 'yes'
+
+jobs:
+- template: run-tox-env.yml@tox
+  parameters:
+    jobs:
+      lint: null
+      py37:
+        image: [linux, windows, macOs]
+      py36:
+        image: [linux, windows, macOs]
+      py35:
+        image: [linux, windows, macOs]
+      py34:
+        image: [linux, windows, macOs]
+      py27:
+        image: [linux, windows, macOs]
+    before:
+      - script: 'python get-poetry.py --preview -y && source $HOME/.poetry/env'
+        condition: and(succeeded(), in(variables['image_name'], 'linux', 'macOs'), in(variables['TOXENV'], 'py37', 'py36', 'py35', 'py34', 'py27'))
+        displayName: Install Poetry for Unix
+      - script: 'python get-poetry.py --preview -y && setx path "%path%;%USERPROFILE%\.poetry\bin"'
+        condition: and(succeeded(), eq(variables['image_name'], 'windows'), in(variables['TOXENV'], 'py37', 'py36', 'py35', 'py34', 'py27'))
+        displayName: Install Poetry for Windows
