@@ -47,7 +47,7 @@ def user_cache_dir(appname):
 
         # Add our app name and Cache directory to it
         path = os.path.join(path, appname, "Cache")
-    elif sys.platform == "darwin":
+    elif sys.platform == "darwin" and "XDG_CACHE_HOME" not in os.environ:
         # Get the base path
         path = expanduser("~/Library/Caches")
 
@@ -93,7 +93,7 @@ def user_data_dir(appname, roaming=False):
     if WINDOWS:
         const = roaming and "CSIDL_APPDATA" or "CSIDL_LOCAL_APPDATA"
         path = os.path.join(os.path.normpath(_get_win_folder(const)), appname)
-    elif sys.platform == "darwin":
+    elif sys.platform == "darwin" and "XDG_DATA_HOME" not in os.environ:
         path = os.path.join(expanduser("~/Library/Application Support/"), appname)
     else:
         path = os.path.join(
@@ -125,7 +125,7 @@ def user_config_dir(appname, roaming=True):
     """
     if WINDOWS:
         path = user_data_dir(appname, roaming=roaming)
-    elif sys.platform == "darwin":
+    elif sys.platform == "darwin" and "XDG_CONFIG_HOME" not in os.environ:
         path = user_data_dir(appname)
     else:
         path = os.getenv("XDG_CONFIG_HOME", expanduser("~/.config"))
@@ -155,7 +155,7 @@ def site_config_dirs(appname):
     if WINDOWS:
         path = os.path.normpath(_get_win_folder("CSIDL_COMMON_APPDATA"))
         pathlist = [os.path.join(path, appname)]
-    elif sys.platform == "darwin":
+    elif sys.platform == "darwin" and "XDG_CONFIG_DIRS" not in os.environ:
         pathlist = [os.path.join("/Library/Application Support", appname)]
     else:
         # try looking in $XDG_CONFIG_DIRS
